@@ -1,0 +1,24 @@
+{
+    "name": "@phil/spam-protection-bundle",
+    "description": "The Stimulus controller of phil/spam-protection-bundle's proof of work",
+    "version": "0.1.0",
+    "license": "MIT",
+    "type": "module",
+    "main": "src/proof_of_work_controller.js",
+    "symfony": {
+        "controllers": {
+            "proof-of-work": {
+                "main": "src/proof_of_work_controller.js",
+                "webpackMode": "eager",
+                "fetch": "eager",
+                "enabled": true
+            }
+        },
+        "importmap": {
+            "@hotwired/stimulus": "^3.0"
+        }
+    },
+    "peerDependencies": {
+        "@hotwired/stimulus": "^3.0"
+    }
+}
