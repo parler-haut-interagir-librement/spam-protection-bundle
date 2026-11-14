@@ -2,7 +2,7 @@
 
 | Data | Kept | For how long |
 |---|---|---|
-| The token's nonce | In the cache pool of used tokens | `timing.maximum` seconds |
+| The token's nonce | In the store of used tokens: the cache pool, or the table of `used_tokens.connection` | `timing.maximum` seconds; in the table, until the next purge |
 | A keyed hash of the client's network, per form: the IPv4 address, or the `/64` of an IPv6 one | In the rate limiter's storage | The limiter's window |
 | The form's scope and the signals of a held submission | In the log, `spam_protection` channel | The log's retention |
 

@@ -1,4 +1,4 @@
-<!-- phil-dev source-sha256=b7d79a9c55773ccb5e697a03ca6fd782a3b8fdb725185adf30a3b240cc581fa4 -->
+<!-- phil-dev source-sha256=f708506e169a18c1859166ad317321601f4b077b46b6ab36b559ae4f8252aa1a -->
 # Signaux
 
 Chaque signal est une observation que fait le serveur lui-même, jamais une affirmation du client. L'inspection lève
@@ -12,7 +12,7 @@ tous ceux qu'elle trouve, dans cet ordre.
 | `proof_invalid` | La preuve de travail est absente ou fausse. Vérifiée seulement sur un jeton authentique. | `proof_of_work` |
 | `too_fast` | Moins de `timing.minimum` secondes depuis le rendu du formulaire. | `timing.minimum` |
 | `token_expired` | Plus de `timing.maximum` secondes depuis le rendu du formulaire. | `timing.maximum` |
-| `token_replayed` | Le jeton a déjà été envoyé. Vérifié seulement sur un jeton authentique et à temps. | `cache_pool` |
+| `token_replayed` | Le jeton a déjà été envoyé. Vérifié seulement sur un jeton authentique et à temps. | `cache_pool`, `used_tokens` |
 | `malformed` | Un texte n'est pas de l'UTF-8 valide, ce qu'aucun navigateur n'envoie ; il est lu malgré tout pour les quatre signaux suivants, chaque séquence invalide remplacée. | — |
 | `too_long` | Un texte contient plus de caractères que permis ; seul ce nombre est lu pour les trois signaux suivants. | `content.maximum_length` |
 | `too_many_links` | Un texte contient plus d'adresses `http://`, `https://` ou `www.` que permis, chacune comptée une fois. | `content.maximum_links` |

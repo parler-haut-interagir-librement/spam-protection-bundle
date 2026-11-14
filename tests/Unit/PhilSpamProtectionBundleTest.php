@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Phil\SpamProtectionBundle\Tests\Unit;
 
 use Phil\SpamProtectionBundle\Application\SubmissionInspector;
+use Phil\SpamProtectionBundle\Application\UsedTokens;
 use Phil\SpamProtectionBundle\Infrastructure\Cache\CacheUsedTokens;
+use Phil\SpamProtectionBundle\Infrastructure\Doctrine\DbalUsedTokens;
+use Phil\SpamProtectionBundle\Infrastructure\Doctrine\UsedTokensSchemaListener;
 use Phil\SpamProtectionBundle\Infrastructure\Form\SpamProtectionTypeExtension;
 use Phil\SpamProtectionBundle\Infrastructure\Http\ClientKey;
 use Phil\SpamProtectionBundle\Infrastructure\RateLimit\SymfonySubmissionRateLimiter;
@@ -33,9 +36,12 @@ final class PhilSpamProtectionBundleTest extends TestCase
         self::assertSame([SubmissionInspector::class, 'configured'], $inspector->getFactory());
         self::assertSame('%kernel.secret%', $inspector->getArgument(0));
         self::assertSame('clock', (string) $this->reference($inspector->getArgument(1)));
-        self::assertSame(CacheUsedTokens::class, (string) $this->reference($inspector->getArgument(2)));
+        self::assertSame(UsedTokens::class, (string) $this->reference($inspector->getArgument(2)));
+        self::assertSame(CacheUsedTokens::class, (string) $container->getAlias(UsedTokens::class));
         self::assertSame([3, 3600, 12, 3, [], true, null, 20_000], \array_slice($inspector->getArguments(), 3));
         self::assertSame('cache.app', (string) $this->reference($container->getDefinition(CacheUsedTokens::class)->getArgument(0)));
+        self::assertNull($container->getDefinition(CacheUsedTokens::class)->getArgument(1), 'Without a lock factory, the pool claims without a lock, as before.');
+        self::assertFalse($container->hasDefinition(DbalUsedTokens::class));
         self::assertFalse($container->hasDefinition(SymfonySubmissionRateLimiter::class));
         self::assertSame('request_stack', (string) $this->reference($container->getDefinition(ClientKey::class)->getArgument(0)));
         self::assertSame('%kernel.secret%', $container->getDefinition(ClientKey::class)->getArgument(1));
@@ -76,6 +82,37 @@ final class PhilSpamProtectionBundleTest extends TestCase
         self::assertSame(500, $inspector->getArgument(10));
         self::assertSame('cache.shared', (string) $this->reference($container->getDefinition(CacheUsedTokens::class)->getArgument(0)));
         self::assertSame('limiter.contact', (string) $this->reference($container->getDefinition(SymfonySubmissionRateLimiter::class)->getArgument(0)));
+    }
+
+    public function testTheCachePoolClaimsUnderTheLockFactoryGiven(): void
+    {
+        $container = $this->load(['cache_pool' => 'cache.shared', 'used_tokens' => ['lock_factory' => 'lock.factory']]);
+        $tokens = $container->getDefinition(CacheUsedTokens::class);
+
+        self::assertSame(['cache.shared', 'lock.factory'], [(string) $this->reference($tokens->getArgument(0)), (string) $this->reference($tokens->getArgument(1))]);
+        self::assertSame(CacheUsedTokens::class, (string) $container->getAlias(UsedTokens::class));
+    }
+
+    public function testAConnectionKeepsTheUsedTokensInItsTable(): void
+    {
+        $container = $this->load(['used_tokens' => ['connection' => 'default']]);
+        $tokens = $container->getDefinition(DbalUsedTokens::class);
+
+        self::assertSame(['doctrine.dbal.default_connection', 'clock'], [(string) $this->reference($tokens->getArgument(0)), (string) $this->reference($tokens->getArgument(1))]);
+        self::assertSame(DbalUsedTokens::class, (string) $container->getAlias(UsedTokens::class));
+        self::assertFalse($container->hasDefinition(CacheUsedTokens::class));
+
+        $listener = $container->getDefinition(UsedTokensSchemaListener::class);
+        self::assertSame('doctrine.dbal.default_connection', (string) $this->reference($listener->getArgument(0)));
+        self::assertSame([['event' => 'postGenerateSchema', 'connection' => 'default']], $listener->getTag('doctrine.event_listener'));
+    }
+
+    public function testATableAndALockAreNotBothChosen(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessageIsOrContains('The used tokens are kept in a table of a connection or in the cache pool under a lock, not both');
+
+        $this->load(['used_tokens' => ['connection' => 'default', 'lock_factory' => 'lock.factory']]);
     }
 
     public function testTheProofDifficultyIsBounded(): void

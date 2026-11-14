@@ -37,18 +37,25 @@
         "symfony/translation-contracts": "^3.6"
     },
     "require-dev": {
+        "doctrine/dbal": "^4.5",
+        "doctrine/orm": "^3.7",
         "phpunit/phpunit": "^13.4",
         "symfony/cache": "^8.2",
         "symfony/clock": "^8.2",
         "symfony/console": "^8.2",
         "symfony/event-dispatcher": "^8.2",
+        "symfony/filesystem": "^8.2",
         "symfony/framework-bundle": "^8.2",
         "symfony/http-kernel": "^8.2",
+        "symfony/lock": "^8.2",
+        "symfony/process": "^8.2",
         "symfony/rate-limiter": "^8.2",
         "symfony/routing": "^8.2",
         "symfony/translation": "^8.2"
     },
     "suggest": {
+        "doctrine/dbal": "To keep the used tokens in a table, single-use atomically",
+        "symfony/lock": "To keep the used tokens in a cache pool, single-use atomically under a lock",
         "symfony/rate-limiter": "To limit the submissions of one client to one form"
     },
     "minimum-stability": "dev",

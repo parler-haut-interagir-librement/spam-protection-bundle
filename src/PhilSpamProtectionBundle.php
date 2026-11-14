@@ -6,7 +6,10 @@ namespace Phil\SpamProtectionBundle;
 
 use Override;
 use Phil\SpamProtectionBundle\Application\SubmissionInspector;
+use Phil\SpamProtectionBundle\Application\UsedTokens;
 use Phil\SpamProtectionBundle\Infrastructure\Cache\CacheUsedTokens;
+use Phil\SpamProtectionBundle\Infrastructure\Doctrine\DbalUsedTokens;
+use Phil\SpamProtectionBundle\Infrastructure\Doctrine\UsedTokensSchemaListener;
 use Phil\SpamProtectionBundle\Infrastructure\Form\SpamProtectionTypeExtension;
 use Phil\SpamProtectionBundle\Infrastructure\Http\ClientKey;
 use Phil\SpamProtectionBundle\Infrastructure\RateLimit\SymfonySubmissionRateLimiter;
@@ -29,6 +32,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  *     proof_of_work: 12
  *     content: { maximum_length: 20000, maximum_links: 3, forbidden_terms: [], detect_gibberish: true }
  *     cache_pool: cache.app
+ *     used_tokens: { connection: null, lock_factory: null }   # an atomic store of used tokens, for production
  *     rate_limiter: null      # the service id of a Symfony rate limiter factory
  * ```
  */
@@ -87,6 +91,24 @@ final class PhilSpamProtectionBundle extends AbstractBundle
                     ->info('The PSR-6 pool that keeps the used tokens; shared by every web server.')
                     ->defaultValue('cache.app')
                 ->end()
+                ->arrayNode('used_tokens')
+                    ->info('How a token is made single-use atomically: a table of a Doctrine connection, or the cache pool under a lock. Without either, two submissions of one token at the same moment can both pass.')
+                    ->addDefaultsIfNotSet()
+                    ->validate()
+                        ->ifTrue(static fn (array $tokens): bool => null !== $tokens['connection'] && null !== $tokens['lock_factory'])
+                        ->thenInvalid('The used tokens are kept in a table of a connection or in the cache pool under a lock, not both: %s given.')
+                    ->end()
+                    ->children()
+                        ->scalarNode('connection')
+                            ->info('The Doctrine connection whose table keeps the used tokens: "default".')
+                            ->defaultNull()
+                        ->end()
+                        ->scalarNode('lock_factory')
+                            ->info('The lock factory, on a store shared by every web server, under which the cache pool claims a token: "lock.factory".')
+                            ->defaultNull()
+                        ->end()
+                    ->end()
+                ->end()
                 ->scalarNode('rate_limiter')
                     ->info('The service id of a Symfony rate limiter factory counting submissions per form and client.')
                     ->defaultNull()
@@ -100,10 +122,22 @@ final class PhilSpamProtectionBundle extends AbstractBundle
     #[Override]
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
-        /** @var array{secret: string, timing: array{minimum: int, maximum: int}, proof_of_work: int, content: array{maximum_length: ?int, maximum_links: ?int, forbidden_terms: list<string>, detect_gibberish: bool}, cache_pool: string, rate_limiter: ?string} $config */
+        /** @var array{secret: string, timing: array{minimum: int, maximum: int}, proof_of_work: int, content: array{maximum_length: ?int, maximum_links: ?int, forbidden_terms: list<string>, detect_gibberish: bool}, cache_pool: string, used_tokens: array{connection: ?string, lock_factory: ?string}, rate_limiter: ?string} $config */
         $services = $container->services();
+        $connection = $config['used_tokens']['connection'];
 
-        $services->set(CacheUsedTokens::class)->args([service($config['cache_pool'])]);
+        if (null !== $connection) {
+            $reference = service(\sprintf('doctrine.dbal.%s_connection', $connection));
+            $services->set(DbalUsedTokens::class)->args([$reference, service('clock')]);
+            $services->alias(UsedTokens::class, DbalUsedTokens::class);
+            $services->set(UsedTokensSchemaListener::class)
+                ->args([$reference])
+                ->tag('doctrine.event_listener', ['event' => 'postGenerateSchema', 'connection' => $connection]);
+        } else {
+            $lockFactory = $config['used_tokens']['lock_factory'];
+            $services->set(CacheUsedTokens::class)->args([service($config['cache_pool']), null === $lockFactory ? null : service($lockFactory)]);
+            $services->alias(UsedTokens::class, CacheUsedTokens::class);
+        }
 
         $rateLimiter = null;
 
@@ -117,7 +151,7 @@ final class PhilSpamProtectionBundle extends AbstractBundle
             ->args([
                 $config['secret'],
                 service('clock'),
-                service(CacheUsedTokens::class),
+                service(UsedTokens::class),
                 $config['timing']['minimum'],
                 $config['timing']['maximum'],
                 $config['proof_of_work'],

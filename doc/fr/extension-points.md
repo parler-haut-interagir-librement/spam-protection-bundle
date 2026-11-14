@@ -1,4 +1,4 @@
-<!-- phil-dev source-sha256=a23efe745c46e7a71aaef31aa167dad2d365029aca955b886c92f19ee1af8bef -->
+<!-- phil-dev source-sha256=8d5898212d07130e603f4869852f35b3a650861ce25ecf7c0ccaa3dce68c01ec -->
 # Points d'extension
 
 ## UsedTokens
@@ -14,13 +14,21 @@ Enregistre un nonce comme utilisé pendant `ttl` secondes et indique s'il était
 être atomique** : deux envois d'un même jeton au même moment ne doivent pas se faire dire tous les deux qu'il était
 nouveau.
 
-Le bundle l'implémente sur un pool PSR-6 (`CacheUsedTokens`). PSR-6 n'a pas d'« ajout si absent » atomique : sa
-revendication lit, écrit un marqueur à elle, puis relit. De deux envois qui écrivent l'un après l'autre, celui dont le
-marqueur a été écrasé est refusé. Deux envois qui relisent chacun avant que l'autre n'écrive peuvent quand même
-passer tous les deux : un robot qui rejoue un jeton en une rafale parallèle serrée peut donc faire passer quelques
-envois ; les autres signaux et la limite de débit s'appliquent quand même à chacun. Un stockage qui doit fermer cette
-fenêtre implémente `claim()` sur une primitive atomique : une insertion dans une table avec une clé unique sur le
-nonce, qui échoue sur un doublon, ou Redis `SET key value NX EX ttl`.
+Le bundle en fournit trois, choisis par `used_tokens` ([Configuration](configuration.md#jetons-à-usage-unique-en-production)) :
+
+| Stockage | Atomique | Comment |
+|---|---|---|
+| `DbalUsedTokens`, avec `used_tokens.connection` | Oui | Une insertion sur la clé primaire du nonce ; un doublon est refusé. |
+| `CacheUsedTokens` sous `used_tokens.lock_factory` | Oui, avec un stockage de verrous partagé | Le verrou du nonce, puis une lecture et une écriture sous ce verrou. |
+| `CacheUsedTokens` seul, par défaut | Non | Une lecture, un marqueur écrit, puis une relecture. |
+
+PSR-6 n'a pas d'« ajout si absent » atomique : le pool seul lit, écrit un marqueur à lui, puis relit. De deux envois
+qui écrivent l'un après l'autre, celui dont le marqueur a été écrasé est refusé. Deux envois qui relisent chacun avant
+que l'autre n'écrive peuvent quand même passer tous les deux : un robot qui rejoue un jeton en une rafale parallèle
+serrée peut donc faire passer quelques envois ; les autres signaux et la limite de débit s'appliquent quand même à
+chacun. Un stockage à vous implémente `claim()` sur une primitive atomique — une insertion sur une clé unique qui
+échoue sur un doublon, Redis `SET key value NX EX ttl` — et prend la place de celui du bundle par un alias de
+`Application\UsedTokens`.
 
 ## SubmissionRateLimiter
 

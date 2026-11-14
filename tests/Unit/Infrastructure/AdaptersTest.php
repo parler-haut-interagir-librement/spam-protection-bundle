@@ -7,12 +7,16 @@ namespace Phil\SpamProtectionBundle\Tests\Unit\Infrastructure;
 use Phil\SpamProtectionBundle\Infrastructure\Cache\CacheUsedTokens;
 use Phil\SpamProtectionBundle\Infrastructure\Http\ClientKey;
 use Phil\SpamProtectionBundle\Infrastructure\RateLimit\SymfonySubmissionRateLimiter;
+use Phil\SpamProtectionBundle\Tests\Unit\Fixture\InterleavingPool;
 use Phil\SpamProtectionBundle\Tests\Unit\Fixture\RacingPool;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Component\Lock\LockFactory;
+use Symfony\Component\Lock\SharedLockInterface;
+use Symfony\Component\Lock\Store\InMemoryStore;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\RateLimiter\Storage\InMemoryStorage;
 
@@ -40,6 +44,60 @@ final class AdaptersTest extends TestCase
     public function testAClaimOverwrittenBeforeItIsReadBackIsRefused(): void
     {
         self::assertFalse(new CacheUsedTokens(new RacingPool())->claim('abc', 60));
+    }
+
+    /**
+     * The window `CacheUsedTokens` documents without a lock: a second submission reads, writes and reads back between
+     * the first one's read and write, and both pass. Under a lock, the second one waits and is refused.
+     */
+    public function testWithoutALockTwoInterleavedClaimsBothPass(): void
+    {
+        $second = null;
+        $pool = new InterleavingPool(static function (InterleavingPool $pool) use (&$second): void {
+            $second = new CacheUsedTokens($pool)->claim('abc', 60);
+        });
+
+        self::assertTrue(new CacheUsedTokens($pool)->claim('abc', 60));
+        self::assertTrue($second, 'The window closed on its own: the documentation of CacheUsedTokens is out of date.');
+    }
+
+    public function testUnderALockAClaimReadsAndWritesWhileHoldingIt(): void
+    {
+        $events = [];
+        $pool = new InterleavingPool(static function () use (&$events): void {
+            $events[] = 'read';
+        });
+        $lock = $this->createMock(SharedLockInterface::class);
+        $lock->expects(self::exactly(2))->method('acquire')->with(true)->willReturnCallback(static function () use (&$events): bool {
+            $events[] = 'acquire';
+
+            return true;
+        });
+        $lock->expects(self::exactly(2))->method('release')->willReturnCallback(static function () use (&$events): void {
+            $events[] = 'release';
+        });
+        $locks = $this->createMock(LockFactory::class);
+        $locks->expects(self::exactly(2))->method('createLock')->with('phil_spam_protection.abc', 10.0)->willReturn($lock);
+        $tokens = new CacheUsedTokens($pool, $locks);
+
+        self::assertTrue($tokens->claim('abc', 60));
+        self::assertFalse($tokens->claim('abc', 60));
+        self::assertSame(['acquire', 'read', 'release', 'acquire', 'release'], $events);
+        $marker = $pool->pool->getItem('phil_spam_protection.abc')->get();
+        self::assertIsString($marker);
+        self::assertMatchesRegularExpression('/^[0-9a-f]{16}$/', $marker);
+    }
+
+    public function testUnderALockANonceIsClaimedOnceForItsTimeToLive(): void
+    {
+        $pool = new ArrayAdapter();
+        $tokens = new CacheUsedTokens($pool, new LockFactory(new InMemoryStore()));
+
+        self::assertTrue($tokens->claim('abc', 60));
+        self::assertFalse($tokens->claim('abc', 60));
+        self::assertTrue($tokens->claim('def', 60));
+        self::assertTrue($tokens->claim('gone', -1));
+        self::assertTrue($tokens->claim('gone', -1));
     }
 
     public function testAClaimLeavesItsMarkerInThePool(): void

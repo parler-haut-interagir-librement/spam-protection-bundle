@@ -8,6 +8,8 @@ declare(strict_types=1);
 return [
     'paths' => ['src', 'tests'],
     'phpstan' => [
+        // The child script of the concurrency test runs in its own process, outside the autoloaded suite.
+        'excludePaths' => ['tests/Integration/claim.php'],
         // La dette de phil/dev-tools v2 : ce que ses règles relèvent et qui reste à corriger.
         'ignoreErrors' => [
             // à corriger : API interne de PHPUnit à remplacer par une API publique.

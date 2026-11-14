@@ -1,9 +1,9 @@
-<!-- phil-dev source-sha256=214073df2c6c0e0d5e52ead9b8f64c0efa6fbd969c544fedffbebc9252fb630e -->
+<!-- phil-dev source-sha256=5a0d4860171ab8318dc6b2ce5d3d3b2ac7282d29ac5e5b2236b2dd488e36771b -->
 # Vie privée
 
 | Donnée | Gardée | Pendant combien de temps |
 |---|---|---|
-| Le nonce du jeton | Dans le pool de cache des jetons utilisés | `timing.maximum` secondes |
+| Le nonce du jeton | Dans le stockage des jetons utilisés : le pool de cache, ou la table de `used_tokens.connection` | `timing.maximum` secondes ; dans la table, jusqu'à la prochaine purge |
 | Une empreinte à clé du réseau du client, par formulaire : l'adresse IPv4, ou le `/64` d'une adresse IPv6 | Dans le stockage du limiteur de débit | La fenêtre du limiteur |
 | La portée du formulaire et les signaux d'un envoi retenu | Dans le journal, canal `spam_protection` | La durée de rétention du journal |
 

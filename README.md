@@ -55,7 +55,8 @@ With StimulusBundle, the proof-of-work controller is found from the bundle's `as
 ## Requirements
 
 PHP 8.5 or later with `ext-sodium`, `phil/spam-protection`, `phil/bot-detection-bundle`, and Symfony 8.2's form,
-HTTP foundation and translation contracts; a PSR-6 cache pool and a PSR-20 clock. Optional: `symfony/rate-limiter`. In the browser: Stimulus 3, through StimulusBundle.
+HTTP foundation and translation contracts; a PSR-6 cache pool and a PSR-20 clock. Optional: `symfony/rate-limiter`;
+`doctrine/dbal` or `symfony/lock`, for single-use tokens kept atomically. In the browser: Stimulus 3, through StimulusBundle.
 
 ## Contributing
 

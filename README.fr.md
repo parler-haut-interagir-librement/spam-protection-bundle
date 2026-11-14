@@ -1,4 +1,4 @@
-<!-- phil-dev source-sha256=e31bd307aba05521219e82fdbe87d0b79f36c0a9f70a7f303c0af8d0032479c0 -->
+<!-- phil-dev source-sha256=3386a6c556e2bf74d0f7afe37020e71e5c71369382f88dbebbe5791f7b66996b -->
 # phil/spam-protection-bundle
 
 **Tenez le pourriel hors de vos formulaires Symfony sans captcha, sans tiers et sans identifiant.**
@@ -59,7 +59,8 @@ Avec StimulusBundle, le contrôleur de preuve de travail est trouvé grâce au `
 
 PHP 8.5 ou plus récent avec `ext-sodium`, `phil/spam-protection`, `phil/bot-detection-bundle`, ainsi que les
 composants form, HTTP foundation et translation contracts de Symfony 8.2 ; un pool de cache PSR-6 et une horloge
-PSR-20. Facultatif : `symfony/rate-limiter`. Dans le navigateur : Stimulus 3, par StimulusBundle.
+PSR-20. Facultatif : `symfony/rate-limiter` ; `doctrine/dbal` ou `symfony/lock`, pour des jetons à usage unique gardés
+de façon atomique. Dans le navigateur : Stimulus 3, par StimulusBundle.
 
 ## Contribuer
 

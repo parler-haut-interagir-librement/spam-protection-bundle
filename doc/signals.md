@@ -11,7 +11,7 @@ those it finds, in this order.
 | `proof_invalid` | The proof of work is missing or wrong. Checked only on a genuine token. | `proof_of_work` |
 | `too_fast` | Fewer than `timing.minimum` seconds since the form was rendered. | `timing.minimum` |
 | `token_expired` | More than `timing.maximum` seconds since the form was rendered. | `timing.maximum` |
-| `token_replayed` | The token was already submitted. Checked only on a genuine, on-time token. | `cache_pool` |
+| `token_replayed` | The token was already submitted. Checked only on a genuine, on-time token. | `cache_pool`, `used_tokens` |
 | `malformed` | A text is not valid UTF-8, which no browser sends; it is still read for the next four signals, each bad sequence replaced. | — |
 | `too_long` | A text holds more characters than allowed; only that many are read for the next three signals. | `content.maximum_length` |
 | `too_many_links` | A text holds more `http://`, `https://` or `www.` addresses than allowed, each counted once. | `content.maximum_links` |
