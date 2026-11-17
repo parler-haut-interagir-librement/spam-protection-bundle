@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Phil\SpamProtectionBundle\Tests\Unit;
 
+use Phil\RateLimit\RateLimitGuard;
 use Phil\SpamProtectionBundle\Application\SubmissionInspector;
 use Phil\SpamProtectionBundle\Application\UsedTokens;
 use Phil\SpamProtectionBundle\Infrastructure\Cache\CacheUsedTokens;
@@ -15,10 +16,15 @@ use Phil\SpamProtectionBundle\Infrastructure\RateLimit\SymfonySubmissionRateLimi
 use Phil\SpamProtectionBundle\PhilSpamProtectionBundle;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Cache\Adapter\FilesystemAdapter;
+use Symfony\Component\Cache\Adapter\RedisAdapter;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
+use Symfony\Component\RateLimiter\Storage\CacheStorage;
 
 #[CoversClass(PhilSpamProtectionBundle::class)]
 final class PhilSpamProtectionBundleTest extends TestCase
@@ -156,6 +162,46 @@ final class PhilSpamProtectionBundleTest extends TestCase
 
         self::assertNull($inspector->getArgument(6));
         self::assertNull($inspector->getArgument(10));
+    }
+
+    /**
+     * The limiter named is checked as every PHIL rate limit is: a store local to each server would let a client spend
+     * the limit once per server, and the container build refuses it in production unless the application runs on one.
+     */
+    public function testALimiterLocalToEachServerIsRefusedInProduction(): void
+    {
+        $build = static function (array $config, string $environment): ContainerBuilder {
+            $container = new ContainerBuilder();
+            $container->setParameter('kernel.environment', $environment);
+            $container->setDefinition('cache.local', new Definition(FilesystemAdapter::class));
+            $container->setDefinition('cache.shared', new Definition(RedisAdapter::class));
+            $container->setDefinition('limiter.storage.contact', new Definition(CacheStorage::class, [new Reference('cache.local')]));
+            $container->setDefinition('limiter.storage.shared', new Definition(CacheStorage::class, [new Reference('cache.shared')]));
+            $container->setDefinition('limiter.contact', new Definition(RateLimiterFactory::class, [[], new Reference('limiter.storage.contact')]));
+            $container->setDefinition('limiter.shared', new Definition(RateLimiterFactory::class, [[], new Reference('limiter.storage.shared')]));
+
+            $bundle = new PhilSpamProtectionBundle();
+            $extension = $bundle->getContainerExtension();
+            self::assertNotNull($extension);
+            $extension->load([$config], $container);
+            $bundle->build($container);
+
+            foreach ($container->getCompilerPassConfig()->getBeforeOptimizationPasses() as $pass) {
+                if ($pass instanceof RateLimitGuard) {
+                    $pass->process($container);
+                }
+            }
+
+            return $container;
+        };
+
+        $build(['rate_limiter' => 'limiter.contact'], 'test');
+        $build(['rate_limiter' => 'limiter.shared'], 'prod');
+        $build(['rate_limiter' => 'limiter.contact', 'single_server' => true], 'prod');
+        $build([], 'prod');
+
+        $this->expectExceptionObject(new InvalidConfigurationException('phil_spam_protection.rate_limiter: the store "limiter.contact" is local to each server, so a client could spend the limit once per server. Name a cache pool on a shared store — Redis, Memcached, a database —, or set "single_server" to true on a single server.'));
+        $build(['rate_limiter' => 'limiter.contact'], 'prod');
     }
 
     public function testAnEmptySecretIsRefused(): void

@@ -11,7 +11,9 @@ use Phil\SpamProtectionBundle\Tests\Unit\Fixture\InterleavingPool;
 use Phil\SpamProtectionBundle\Tests\Unit\Fixture\RacingPool;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Psr\Cache\CacheItemInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
+use Symfony\Component\Cache\Adapter\NullAdapter;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\Lock\LockFactory;
@@ -34,8 +36,35 @@ final class AdaptersTest extends TestCase
         self::assertFalse($tokens->claim('abc', 60));
         self::assertTrue($tokens->claim('def', 60));
         self::assertTrue($pool->getItem('phil_spam_protection.abc')->isHit());
-        self::assertTrue($tokens->claim('gone', -1));
-        self::assertTrue($tokens->claim('gone', -1));
+        self::assertFalse($tokens->claim('gone', -1), 'A claim that expires at once is not kept, so it is refused.');
+    }
+
+    /**
+     * A pool that does not keep the claim — its save() answers false, or it keeps nothing — refuses the token: a claim
+     * accepted without its marker would let the same token through again.
+     */
+    public function testAClaimThePoolDoesNotKeepIsRefused(): void
+    {
+        $refusing = new class extends ArrayAdapter {
+            public function save(CacheItemInterface $item): bool
+            {
+                return false;
+            }
+        };
+
+        self::assertFalse(new CacheUsedTokens($refusing)->claim('abc', 60));
+        self::assertFalse(new CacheUsedTokens($refusing, new LockFactory(new InMemoryStore()))->claim('abc', 60));
+        self::assertFalse(new CacheUsedTokens(new NullAdapter())->claim('abc', 60), 'A pool that keeps nothing cannot tell a token used.');
+        $unsure = new class extends ArrayAdapter {
+            public function save(CacheItemInterface $item): bool
+            {
+                parent::save($item);
+
+                return false;
+            }
+        };
+        self::assertFalse(new CacheUsedTokens($unsure)->claim('abc', 60), 'A write the pool does not confirm is not trusted, even if it went through.');
+        self::assertTrue(new CacheUsedTokens(new ArrayAdapter())->claim('abc', 60));
     }
 
     /**

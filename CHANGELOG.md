@@ -4,6 +4,29 @@ All notable changes to `phil/spam-protection-bundle` will be documented in this 
 
 Updates should follow the [Keep a CHANGELOG](https://keepachangelog.com/) principles.
 
+## 0.2.0-alpha - 2026-11-17
+
+The next version is 0.2.0-alpha: in the `prod` environment, a limiter whose storage is local to each server fails the
+container build, and a token whose claim the pool did not keep is refused.
+
+### Added
+
+- `single_server`, false by default: accepts in the `prod` environment a limiter whose storage is local to the server,
+  for an application on one server.
+
+### Changed
+
+- `phil/rate-limit` joins `require`: the bundle adds its `RateLimitGuard` and hands it the limiter named by
+  `rate_limiter`.
+
+### Security
+
+- `CacheUsedTokens` refuses a claim the pool did not keep: under a lock, the claim is what `save()` answers; without
+  one, a `save()` that answers `false`, or a marker that cannot be read back, refuses the token. A pool that refused
+  the write let the same token be accepted again; a pool that keeps nothing now refuses every token.
+- In the `prod` environment, a limiter named by `rate_limiter` whose storage is local to each server fails the container
+  build, unless `single_server` is true: such a limiter let a client spend the limit once per server.
+
 ## 0.1.1-alpha - 2026-11-14
 
 ### Added

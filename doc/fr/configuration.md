@@ -1,4 +1,4 @@
-<!-- phil-dev source-sha256=78cc54ef1790af5c29775a13d622f4c71f39912cd0fa9ad8d29036c6b576a35b -->
+<!-- phil-dev source-sha256=a7a4648c56a1da080df198c8758999b34e3ca687f0ee3e31e82f14020e9db887 -->
 # Configuration
 
 L'alias est `phil_spam_protection`. Chaque clé est facultative.
@@ -27,7 +27,8 @@ phil_spam_protection:
 | `cache_pool` | `cache.app` | Le pool PSR-6 des jetons utilisés. Donnez-en un que tous les serveurs Web partagent. |
 | `used_tokens.connection` | `null` | La connexion Doctrine dont une table garde les jetons utilisés, à la place du pool : `default`. Chaque revendication est une insertion atomique. |
 | `used_tokens.lock_factory` | `null` | L'identifiant de service d'une fabrique de verrous Symfony sous laquelle le pool revendique chaque jeton : `lock.factory`. Son stockage doit être partagé par tous les serveurs Web. Pas avec `connection`. |
-| `rate_limiter` | `null` | L'identifiant de service d'une fabrique de limiteurs de débit de Symfony — `limiter.contact` pour `framework.rate_limiter.contact` — ; aucun par défaut. |
+| `rate_limiter` | `null` | L'identifiant de service d'une fabrique de limiteurs de débit de Symfony — `limiter.contact` pour `framework.rate_limiter.contact` — ; aucun par défaut. Dans l'environnement `prod`, son stockage doit être partagé par tous les serveurs web, sinon la construction du conteneur échoue. |
+| `single_server` | `false` | Accepte dans l'environnement `prod` un limiteur dont le stockage est local au serveur, pour une application sur un seul serveur. |
 
 ```yaml
 # a rate limit of 5 submissions per hour, per form and client
@@ -66,6 +67,18 @@ connexion : `doctrine:migrations:diff` écrit sa migration ; sans l'ORM, `UsedTo
 schéma. `DbalUsedTokens::purge()` oublie les lignes expirées, depuis une tâche planifiée. Sous un verrou, chaque
 revendication tient le verrou de son nonce au plus 10 secondes ; sur Redis, le `SET NX` du stockage des verrous donne
 l'étape atomique.
+
+Une revendication que le pool ne garde pas est refusée : sous un verrou, quand `save()` répond `false` ; sans verrou,
+aussi quand le marqueur ne peut pas être relu. Un pool qui ne garde rien, comme `cache.adapter.null`, refuse donc chaque
+jeton.
+
+## La limite de débit en production
+
+Le bundle ajoute le `RateLimitGuard` de `phil/rate-limit` et lui confie le limiteur nommé par `rate_limiter`. Dans
+l'environnement `prod`, un limiteur dont le stockage est local à chaque serveur — le `cache.rate_limiter` par défaut du
+framework sur le système de fichiers, un pool `cache.adapter.array`, un `InMemoryStorage` — fait échouer la construction
+du conteneur : chaque serveur compterait à part, et un client pourrait dépenser la limite une fois par serveur. Donnez
+au limiteur un `cache_pool` sur un stockage partagé, ou réglez `single_server: true` sur un seul serveur.
 
 ## Services
 

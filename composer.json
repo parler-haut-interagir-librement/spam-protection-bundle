@@ -1,6 +1,6 @@
 {
     "name": "phil/spam-protection-bundle",
-    "description": "Spam protection for Symfony forms without captcha, third party or identifier: honeypot, signed single-use token, filling time, browser proof of work, text rules and rate limit, whose outcome is a phil/bot-detection-bundle verdict",
+    "description": "phil/spam-protection in Symfony: keep spam out of your forms without a captcha, a third party or tracking, through checks a person never sees.",
     "license": "MIT",
     "type": "symfony-bundle",
     "keywords": [
@@ -25,6 +25,7 @@
         "ext-filter": "*",
         "ext-sodium": "*",
         "phil/bot-detection-bundle": "^0.1@dev",
+        "phil/rate-limit": "^0.1.1@dev",
         "phil/spam-protection": "^0.1@dev",
         "psr/cache": "^3.0",
         "psr/clock": "^1.0",
@@ -37,6 +38,8 @@
         "symfony/translation-contracts": "^3.6"
     },
     "require-dev": {
+        "ext-pdo": "*",
+        "ext-pdo_sqlite": "*",
         "doctrine/dbal": "^4.5",
         "doctrine/orm": "^3.7",
         "phpunit/phpunit": "^13.4",
@@ -72,7 +75,7 @@
     },
     "extra": {
         "branch-alias": {
-            "dev-main": "0.1.x-dev"
+            "dev-main": "0.2.x-dev"
         }
     }
 }

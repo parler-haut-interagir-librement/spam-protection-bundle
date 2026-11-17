@@ -21,6 +21,9 @@ use Symfony\Component\Lock\LockFactory;
  * only if the marker it reads back is still its own: of two submissions of one token that write one after the other,
  * the one overwritten is refused. Two that each read back before the other writes can still both pass; the window is
  * the time between one write and one read on the pool. `DbalUsedTokens`, or this store with a lock, closes it.
+ *
+ * A claim the pool does not keep is refused: its `save()` answered `false`, or, without a lock, the marker cannot be
+ * read back. Accepting it would let the same token through again; a pool that keeps nothing refuses every token.
  */
 final readonly class CacheUsedTokens implements UsedTokens
 {
@@ -52,9 +55,7 @@ final readonly class CacheUsedTokens implements UsedTokens
                 return false;
             }
 
-            $this->pool->save($item->set($this->marker())->expiresAfter($ttl));
-
-            return true;
+            return $this->pool->save($item->set($this->marker())->expiresAfter($ttl));
         } finally {
             $lock->release();
         }
@@ -69,11 +70,14 @@ final readonly class CacheUsedTokens implements UsedTokens
         }
 
         $marker = $this->marker();
-        $this->pool->save($item->set($marker)->expiresAfter($ttl));
+
+        if (!$this->pool->save($item->set($marker)->expiresAfter($ttl))) {
+            return false;
+        }
 
         $stored = $this->pool->getItem($key);
 
-        return !$stored->isHit() || $marker === $stored->get();
+        return $stored->isHit() && $marker === $stored->get();
     }
 
     private function marker(): string

@@ -26,7 +26,8 @@ phil_spam_protection:
 | `cache_pool` | `cache.app` | The PSR-6 pool of used tokens. Give one that every web server shares. |
 | `used_tokens.connection` | `null` | The Doctrine connection whose table keeps the used tokens, in place of the pool: `default`. Each claim is one atomic insert. |
 | `used_tokens.lock_factory` | `null` | The service id of a Symfony lock factory under which the pool claims each token: `lock.factory`. Its store must be shared by every web server. Not with `connection`. |
-| `rate_limiter` | `null` | The service id of a Symfony rate limiter factory — `limiter.contact` for `framework.rate_limiter.contact` —; none by default. |
+| `rate_limiter` | `null` | The service id of a Symfony rate limiter factory — `limiter.contact` for `framework.rate_limiter.contact` —; none by default. In the `prod` environment, its storage must be shared by every web server, or the container build fails. |
+| `single_server` | `false` | Accepts in the `prod` environment a limiter whose storage is local to the server, for an application on one server. |
 
 ```yaml
 # a rate limit of 5 submissions per hour, per form and client
@@ -64,6 +65,17 @@ With `connection`, the table `phil_spam_protection_used_token` joins the schema 
 connection, so `doctrine:migrations:diff` writes its migration; without the ORM, `UsedTokensTable::configure()` adds
 it to a schema. `DbalUsedTokens::purge()` forgets the expired rows, from a scheduled task. Under a lock, each claim
 holds the lock of its nonce for at most 10 seconds; on Redis, the lock store's `SET NX` gives the atomic step.
+
+A claim the pool does not keep is refused: under a lock, when `save()` answers `false`; without one, also when the
+marker cannot be read back. A pool that keeps nothing, such as `cache.adapter.null`, therefore refuses every token.
+
+## The rate limit in production
+
+The bundle adds the `RateLimitGuard` of `phil/rate-limit` and hands it the limiter named by `rate_limiter`. In the
+`prod` environment, a limiter whose storage is local to each server — the framework's default `cache.rate_limiter` on
+the filesystem, a `cache.adapter.array` pool, an `InMemoryStorage` — fails the container build: each server would
+count apart, and a client could spend the limit once per server. Give the limiter a `cache_pool` on a shared store, or
+set `single_server: true` on a single server.
 
 ## Services
 

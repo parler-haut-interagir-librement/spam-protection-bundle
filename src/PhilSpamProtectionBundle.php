@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Phil\SpamProtectionBundle;
 
 use Override;
+use Phil\RateLimit\RateLimitGuard;
 use Phil\SpamProtectionBundle\Application\SubmissionInspector;
 use Phil\SpamProtectionBundle\Application\UsedTokens;
 use Phil\SpamProtectionBundle\Infrastructure\Cache\CacheUsedTokens;
@@ -110,10 +111,23 @@ final class PhilSpamProtectionBundle extends AbstractBundle
                     ->end()
                 ->end()
                 ->scalarNode('rate_limiter')
-                    ->info('The service id of a Symfony rate limiter factory counting submissions per form and client.')
+                    ->info('The service id of a Symfony rate limiter factory counting submissions per form and client; in the prod environment, its storage must be shared by every server.')
                     ->defaultNull()
                 ->end()
+                ->booleanNode('single_server')
+                    ->info('Accepts a rate limiter whose storage is local to the server in the prod environment, for an application on one server.')
+                    ->defaultFalse()
+                ->end()
             ->end();
+    }
+
+    /**
+     * The guard of the rate limits, which refuses in the prod environment a limiter counting on each server apart.
+     */
+    #[Override]
+    public function build(ContainerBuilder $container): void
+    {
+        $container->addCompilerPass(new RateLimitGuard());
     }
 
     /**
@@ -122,7 +136,7 @@ final class PhilSpamProtectionBundle extends AbstractBundle
     #[Override]
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
-        /** @var array{secret: string, timing: array{minimum: int, maximum: int}, proof_of_work: int, content: array{maximum_length: ?int, maximum_links: ?int, forbidden_terms: list<string>, detect_gibberish: bool}, cache_pool: string, used_tokens: array{connection: ?string, lock_factory: ?string}, rate_limiter: ?string} $config */
+        /** @var array{secret: string, timing: array{minimum: int, maximum: int}, proof_of_work: int, content: array{maximum_length: ?int, maximum_links: ?int, forbidden_terms: list<string>, detect_gibberish: bool}, cache_pool: string, used_tokens: array{connection: ?string, lock_factory: ?string}, rate_limiter: ?string, single_server: bool} $config */
         $services = $container->services();
         $connection = $config['used_tokens']['connection'];
 
@@ -143,6 +157,7 @@ final class PhilSpamProtectionBundle extends AbstractBundle
 
         if (null !== $config['rate_limiter']) {
             $services->set(SymfonySubmissionRateLimiter::class)->args([service($config['rate_limiter'])]);
+            RateLimitGuard::watch($builder, $config['rate_limiter'], 'phil_spam_protection.rate_limiter', $config['single_server']);
             $rateLimiter = service(SymfonySubmissionRateLimiter::class);
         }
 
