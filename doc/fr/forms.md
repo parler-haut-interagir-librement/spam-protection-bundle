@@ -1,4 +1,4 @@
-<!-- phil-dev source-sha256=6bb533c350c1e094f0eafd37b0c4f8416599a36a6fe7743bc0d23a1ac0f517e6 -->
+<!-- phil-dev source-sha256=4e29434e65d35f34548a65630b937cd229b05749dadb8264701c59993c80bfeb -->
 # Protéger un formulaire
 
 Tout formulaire accepte l'option `spam_protection` :
@@ -34,13 +34,16 @@ Ils sont rendus avec le reste du formulaire — `form_rest(form)` ou `form_end(f
 
 ## Un envoi retenu
 
-Après l'envoi, l'inspecteur lit les trois champs et les `content_fields`. Un envoi retenu comme pourriel reçoit **une
+Après l'envoi, l'inspecteur lit les trois champs et les `content_fields`, et `RefusalPolicy` pèse
+les signaux qu'il a levés : par défaut un seul signal refuse, et `refusal` en allège certains
+([Refus pondérés](signals.md#refus-pondérés)). Un envoi retenu comme pourriel reçoit **une
 seule erreur sur le formulaire**, `phil_spam_protection.rejected` dans le domaine `phil_spam_protection` — « This
 submission could not be accepted. Please try again. » —, qui ne dit jamais pourquoi : dire à un robot quelle
 vérification il a ratée lui apprend à la passer. La cause de l'erreur est l'`Inspection`, avec les signaux.
 
-Les raisons vont au journal, sur le canal `spam_protection`, au niveau warning, avec la portée et les signaux —
-jamais l'adresse, le jeton ni le texte.
+Les raisons vont au journal, sur le canal `spam_protection`, au niveau warning, avec la portée, les signaux, leur
+score et le seuil — jamais l'adresse, le jeton ni le texte. Un envoi dont les signaux restent sous le seuil est
+accepté, et journalisé au niveau info.
 
 Un formulaire réaffiché après son envoi — retenu comme pourriel, ou avec un champ à corriger — affiche le jeton émis
 pour cette requête et une preuve vide, jamais le jeton envoyé. Le jeton envoyé est revendiqué par l'inspection, et le

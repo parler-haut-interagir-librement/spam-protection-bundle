@@ -11,6 +11,7 @@ use Phil\SpamProtection\Inspection\Signal;
 use Phil\SpamProtection\Proof\ProofOfWork;
 use Phil\SpamProtection\Timing\TimingPolicy;
 use Phil\SpamProtection\Token\TokenCodec;
+use Phil\SpamProtectionBundle\Application\RefusalPolicy;
 use Phil\SpamProtectionBundle\Application\SubmissionInspector;
 use Phil\SpamProtectionBundle\Infrastructure\Form\SpamProtectionTypeExtension;
 use Phil\SpamProtectionBundle\Infrastructure\Http\ClientKey;
@@ -119,7 +120,7 @@ final class SpamProtectionTypeExtensionTest extends TestCase
         $cause = $form->getErrors()[0]->getCause();
         self::assertInstanceOf(Inspection::class, $cause);
         self::assertSame([Signal::Malformed], $cause->signals);
-        self::assertSame([['warning', 'A submission of the form "{scope}" was held for spam: {signals}.', ['scope' => 'contact', 'signals' => 'malformed']]], $this->logger->records);
+        self::assertSame([['warning', 'A submission of the form "{scope}" was held for spam: {signals}, a score of {score} for {threshold}.', ['scope' => 'contact', 'signals' => 'malformed', 'score' => 100, 'threshold' => 100]]], $this->logger->records);
     }
 
     public function testASubmissionHeldForSpamGetsOneErrorAndALogWithoutTheClient(): void
@@ -137,8 +138,41 @@ final class SpamProtectionTypeExtensionTest extends TestCase
         self::assertInstanceOf(Inspection::class, $cause);
         self::assertSame([Signal::HoneypotFilled, Signal::TooFast, Signal::Gibberish], $cause->signals);
 
-        self::assertSame([['warning', 'A submission of the form "{scope}" was held for spam: {signals}.', ['scope' => 'contact-us', 'signals' => 'honeypot_filled, too_fast, gibberish']]], $this->logger->records);
+        self::assertSame([['warning', 'A submission of the form "{scope}" was held for spam: {signals}, a score of {score} for {threshold}.', ['scope' => 'contact-us', 'signals' => 'honeypot_filled, too_fast, gibberish', 'score' => 300, 'threshold' => 100]]], $this->logger->records);
         self::assertSame(['contact-us|'.hash_hmac('sha256', '203.0.113.7', 'k') => 1], $this->limiter->counts);
+    }
+
+    public function testSignalsBelowTheThresholdAreAcceptedAndLogged(): void
+    {
+        $form = $this->contact(['content_fields' => ['message']], new RefusalPolicy(100, ['too_fast' => 60, 'too_many_links' => 39]));
+        $form->submit($this->submission($form, ['name' => 'Ada', 'message' => 'Hello there, a quote please.']));
+
+        self::assertTrue($form->isValid());
+        self::assertSame([['info', 'A submission of the form "{scope}" raised {signals}, a score of {score} below {threshold}: accepted.', ['scope' => 'contact', 'signals' => 'too_fast', 'score' => 60, 'threshold' => 100]]], $this->logger->records);
+    }
+
+    public function testSignalsThatTogetherReachTheThresholdAreRefused(): void
+    {
+        $form = $this->contact(['content_fields' => ['message']], new RefusalPolicy(100, ['too_fast' => 60, 'too_many_links' => 40]));
+        $form->submit($this->submission($form, ['name' => 'Ada', 'message' => 'See https://a.example https://b.example https://c.example https://d.example']));
+
+        self::assertFalse($form->isValid());
+        self::assertSame([['warning', 'A submission of the form "{scope}" was held for spam: {signals}, a score of {score} for {threshold}.', ['scope' => 'contact', 'signals' => 'too_fast, too_many_links', 'score' => 100, 'threshold' => 100]]], $this->logger->records);
+    }
+
+    public function testAReplayedTokenIsRefusedWhateverTheWeights(): void
+    {
+        $form = $this->contact(true, new RefusalPolicy(1_000, ['too_fast' => 0]));
+        $this->clock->sleep(10);
+        $submission = $this->submission($form, ['name' => 'Ada', 'message' => 'Hello']);
+        $form->submit($submission);
+        self::assertTrue($form->isValid());
+
+        $again = $this->contact(true, new RefusalPolicy(1_000, ['too_fast' => 0]));
+        $again->submit($submission);
+
+        self::assertFalse($again->isValid());
+        self::assertSame(['scope' => 'contact', 'signals' => 'token_replayed', 'score' => 1_000, 'threshold' => 1_000], $this->logger->records[0][2]);
     }
 
     /**
@@ -228,6 +262,17 @@ final class SpamProtectionTypeExtensionTest extends TestCase
         $this->factory()->createNamed('contact', FormType::class, null, ['spam_protection' => ['content_fields' => 'message']]);
     }
 
+    public function testWithoutLoggerASubmissionBelowTheThresholdIsAccepted(): void
+    {
+        $form = Forms::createFormFactoryBuilder()
+            ->addTypeExtension(new SpamProtectionTypeExtension($this->inspector(), refusal: new RefusalPolicy(100, ['too_fast' => 10])))
+            ->getFormFactory()
+            ->createNamed('contact', FormType::class, null, ['spam_protection' => true]);
+        $form->submit($this->submission($form, []));
+
+        self::assertTrue($form->isValid());
+    }
+
     public function testWithoutClientKeyOrLoggerASubmissionIsStillInspected(): void
     {
         $form = Forms::createFormFactoryBuilder()
@@ -252,9 +297,9 @@ final class SpamProtectionTypeExtensionTest extends TestCase
      *
      * @return FormInterface<mixed>
      */
-    private function contact(bool|array $protection): FormInterface
+    private function contact(bool|array $protection, ?RefusalPolicy $refusal = null): FormInterface
     {
-        return $this->factory()->createNamed('contact', FormType::class, null, ['spam_protection' => $protection])
+        return $this->factory(refusal: $refusal)->createNamed('contact', FormType::class, null, ['spam_protection' => $protection])
             ->add('name', TextType::class)
             ->add('message', TextareaType::class);
     }
@@ -286,7 +331,7 @@ final class SpamProtectionTypeExtensionTest extends TestCase
         return $token;
     }
 
-    private function factory(bool $translated = true): FormFactoryInterface
+    private function factory(bool $translated = true, ?RefusalPolicy $refusal = null): FormFactoryInterface
     {
         $requests = new RequestStack([Request::create('/', server: ['REMOTE_ADDR' => '203.0.113.7'])]);
 
@@ -295,7 +340,9 @@ final class SpamProtectionTypeExtensionTest extends TestCase
         $translator->addResource('array', ['phil_spam_protection.rejected' => 'Cet envoi n’a pas pu être accepté.'], 'fr', 'phil_spam_protection');
 
         return Forms::createFormFactoryBuilder()
-            ->addTypeExtension(new SpamProtectionTypeExtension($this->inspector(), new ClientKey($requests, 'k'), $translated ? $translator : null, $this->logger))
+            ->addTypeExtension($refusal instanceof RefusalPolicy
+                ? new SpamProtectionTypeExtension($this->inspector(), new ClientKey($requests, 'k'), $translated ? $translator : null, $this->logger, $refusal)
+                : new SpamProtectionTypeExtension($this->inspector(), new ClientKey($requests, 'k'), $translated ? $translator : null, $this->logger))
             ->getFormFactory();
     }
 

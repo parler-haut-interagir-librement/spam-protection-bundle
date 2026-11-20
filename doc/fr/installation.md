@@ -1,4 +1,4 @@
-<!-- phil-dev source-sha256=a591eb34835fe190df3cf1f563c04715b97e5f83bfb236cfa6cf405a8db152a2 -->
+<!-- phil-dev source-sha256=d618d1615c1fa127c09df6867d62fc1b054a1dfa85b5909b3d6a427e1fc7da74 -->
 # Installation
 
 ## Prérequis
@@ -29,6 +29,21 @@ return [
     Phil\SpamProtectionBundle\PhilSpamProtectionBundle::class => ['all' => true],
 ];
 ```
+
+## En production
+
+Dans l'environnement `prod`, le bundle exige un stockage des jetons utilisés qui résiste aux envois simultanés, et
+l'application ne démarre pas sans lui : une table d'une connexion Doctrine, ou le pool de cache sous un verrou sur un
+stockage que chaque serveur Web partage.
+
+```yaml
+# config/packages/phil_spam_protection.yaml
+when@prod:
+    phil_spam_protection:
+        used_tokens: { connection: default }   # or { lock_factory: lock.factory }
+```
+
+Voir [Jetons à usage unique en production](configuration.md#jetons-à-usage-unique-en-production).
 
 ## Le contrôleur Stimulus
 

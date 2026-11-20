@@ -6,6 +6,7 @@ namespace Phil\SpamProtectionBundle\Infrastructure\Form;
 
 use Override;
 use Phil\SpamProtection\Inspection\Signal;
+use Phil\SpamProtectionBundle\Application\RefusalPolicy;
 use Phil\SpamProtectionBundle\Application\Submission;
 use Phil\SpamProtectionBundle\Application\SubmissionInspector;
 use Phil\SpamProtectionBundle\Infrastructure\Http\ClientKey;
@@ -36,8 +37,9 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  *
  * The form then carries three unmapped fields — a honeypot a person never sees, the signed token, and the proof of
  * work the browser's Stimulus controller fills —, and after submission the inspector reads them with the text of `content_fields`. A
- * submission held for spam gets one form error, which says nothing of why; the reasons go to the log, with the
- * scope and never the client.
+ * submission the `RefusalPolicy` refuses gets one form error, which says nothing of why; the reasons go to the log,
+ * with the scope, the score and never the client. A submission whose signals stay below the threshold is accepted, and
+ * logged too.
  *
  * **A form shown again after a submission carries a fresh token.** The submitted token is claimed by the
  * inspection, and the proof's challenge is the nonce of the token issued when the form was built for this request;
@@ -64,6 +66,7 @@ final class SpamProtectionTypeExtension extends AbstractTypeExtension
         private readonly ?ClientKey $clientKey = null,
         private readonly ?TranslatorInterface $translator = null,
         private readonly ?LoggerInterface $logger = null,
+        private readonly RefusalPolicy $refusal = new RefusalPolicy(),
     ) {
     }
 
@@ -170,10 +173,20 @@ final class SpamProtectionTypeExtension extends AbstractTypeExtension
             return;
         }
 
-        $this->logger?->warning('A submission of the form "{scope}" was held for spam: {signals}.', [
+        $context = [
             'scope' => $scope,
             'signals' => implode(', ', array_map(static fn (Signal $signal): string => $signal->value, $inspection->signals)),
-        ]);
+            'score' => $this->refusal->score($inspection),
+            'threshold' => $this->refusal->threshold,
+        ];
+
+        if (!$this->refusal->refuses($inspection)) {
+            $this->logger?->info('A submission of the form "{scope}" raised {signals}, a score of {score} below {threshold}: accepted.', $context);
+
+            return;
+        }
+
+        $this->logger?->warning('A submission of the form "{scope}" was held for spam: {signals}, a score of {score} for {threshold}.', $context);
 
         $template = 'phil_spam_protection.rejected';
         $message = $this->translator?->trans($template, [], 'phil_spam_protection') ?? 'This submission could not be accepted. Please try again.';

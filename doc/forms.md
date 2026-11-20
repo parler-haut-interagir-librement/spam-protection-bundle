@@ -33,13 +33,16 @@ They render with the rest of the form — `form_rest(form)` or `form_end(form)` 
 
 ## A held submission
 
-After submission, the inspector reads the three fields and the `content_fields`. A submission held for spam gets
+After submission, the inspector reads the three fields and the `content_fields`, and `RefusalPolicy` weighs the
+signals it raised: by default one signal refuses, and `refusal` lightens some of them
+([Weighted refusals](signals.md#weighted-refusals)). A submission held for spam gets
 **one error on the form**, `phil_spam_protection.rejected` in the `phil_spam_protection` domain — "This submission
 could not be accepted. Please try again." —, which never says why: telling a robot which check it failed teaches it
 to pass. The error's cause is the `Inspection`, with the signals.
 
-The reasons go to the log, on the `spam_protection` channel, at warning level, with the scope and the signals —
-never the address, the token or the text.
+The reasons go to the log, on the `spam_protection` channel, at warning level, with the scope, the signals, their
+score and the threshold — never the address, the token or the text. A submission whose signals stay below the
+threshold is accepted, and logged at info level.
 
 A form shown again after its submission — held for spam, or with a field to correct — renders the token issued
 for that request and an empty proof, never the token that was submitted: the submitted token is claimed by the

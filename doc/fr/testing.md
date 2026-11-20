@@ -1,12 +1,13 @@
-<!-- phil-dev source-sha256=5f5190eea02201bf215f37dfea5be5d304544affe7d5a0158d16e9320b57de48 -->
+<!-- phil-dev source-sha256=060ef252897bd6900ebc600f38c22bce4ce095ea6c1b8621a8f9b94cf55eb5ea -->
 # Tests
 
 ## Les tests du bundle
 
 `tests/Unit` couvre l'inspecteur avec des ports en mémoire et une horloge simulée ; les adaptateurs sur un cache en
 tableau, un limiteur de débit en mémoire et une pile de requêtes ; l'extension de formulaire par une fabrique de
-formulaires ; la configuration du bundle sur un `ContainerBuilder`, et `Verdicts`. Les signaux eux-mêmes sont testés
-dans `phil/spam-protection`. `tests/Functional` rend et envoie un formulaire de contact dans un noyau à lui, comme une
+formulaires ; la configuration du bundle sur un `ContainerBuilder`, `Verdicts` et `RefusalPolicy` — des signaux qui
+s'additionnent jusqu'au seuil, ceux qui restent dessous acceptés et journalisés, les signaux certains refusés quels que
+soient les poids. Les signaux eux-mêmes sont testés dans `phil/spam-protection`. `tests/Functional` rend et envoie un formulaire de contact dans un noyau à lui, comme une
 personne — preuve résolue — et comme des robots. `tests/js` exécute le contrôleur Stimulus et son calcul sous
 l'exécuteur de tests de Node, Stimulus étant résolu en *stub* par `tests/js/register.mjs`.
 

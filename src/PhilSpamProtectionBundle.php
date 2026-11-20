@@ -6,6 +6,8 @@ namespace Phil\SpamProtectionBundle;
 
 use Override;
 use Phil\RateLimit\RateLimitGuard;
+use Phil\SpamProtection\Inspection\Signal;
+use Phil\SpamProtectionBundle\Application\RefusalPolicy;
 use Phil\SpamProtectionBundle\Application\SubmissionInspector;
 use Phil\SpamProtectionBundle\Application\UsedTokens;
 use Phil\SpamProtectionBundle\Infrastructure\Cache\CacheUsedTokens;
@@ -15,6 +17,7 @@ use Phil\SpamProtectionBundle\Infrastructure\Form\SpamProtectionTypeExtension;
 use Phil\SpamProtectionBundle\Infrastructure\Http\ClientKey;
 use Phil\SpamProtectionBundle\Infrastructure\RateLimit\SymfonySubmissionRateLimiter;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Kernel\AbstractBundle;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -33,12 +36,16 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  *     proof_of_work: 12
  *     content: { maximum_length: 20000, maximum_links: 3, forbidden_terms: [], detect_gibberish: true }
  *     cache_pool: cache.app
- *     used_tokens: { connection: null, lock_factory: null }   # an atomic store of used tokens, for production
+ *     used_tokens: { connection: null, lock_factory: null }   # an atomic store of used tokens, required in production
  *     rate_limiter: null      # the service id of a Symfony rate limiter factory
+ *     refusal: { threshold: 100, weights: { too_fast: 60, too_many_links: 50 } }
  * ```
  */
 final class PhilSpamProtectionBundle extends AbstractBundle
 {
+    /** The refusal of the cache pool alone as the store of used tokens, in the prod environment. */
+    public const string UNSAFE_STORE = 'phil_spam_protection.used_tokens: in the prod environment, the used tokens need a store that is safe under concurrent submissions. Set "used_tokens.connection" to a Doctrine connection, such as "default", or "used_tokens.lock_factory" to a lock factory on a store every web server shares, such as "lock.factory". The cache pool alone, in memory or in files, lets two submissions of one token both pass: it is accepted outside production only.';
+
     #[Override]
     protected string $extensionAlias = 'phil_spam_protection';
 
@@ -93,7 +100,7 @@ final class PhilSpamProtectionBundle extends AbstractBundle
                     ->defaultValue('cache.app')
                 ->end()
                 ->arrayNode('used_tokens')
-                    ->info('How a token is made single-use atomically: a table of a Doctrine connection, or the cache pool under a lock. Without either, two submissions of one token at the same moment can both pass.')
+                    ->info('How a token is made single-use atomically: a table of a Doctrine connection, or the cache pool under a lock; one of them is required in the prod environment. Without either, two submissions of one token at the same moment can both pass.')
                     ->addDefaultsIfNotSet()
                     ->validate()
                         ->ifTrue(static fn (array $tokens): bool => null !== $tokens['connection'] && null !== $tokens['lock_factory'])
@@ -118,7 +125,42 @@ final class PhilSpamProtectionBundle extends AbstractBundle
                     ->info('Accepts a rate limiter whose storage is local to the server in the prod environment, for an application on one server.')
                     ->defaultFalse()
                 ->end()
+                ->arrayNode('refusal')
+                    ->info('When a submission is refused: the weights of the signals it raised add up, and a score that reaches the threshold refuses. A signal not listed weighs the threshold, so that it refuses alone.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->integerNode('threshold')
+                            ->info('The score that refuses a submission.')
+                            ->defaultValue(RefusalPolicy::DEFAULT_THRESHOLD)
+                            ->min(1)
+                            ->max(RefusalPolicy::MAXIMUM_WEIGHT)
+                        ->end()
+                        ->arrayNode('weights')
+                            ->info(\sprintf('Signal → weight, from 0 to %d. "%s" always weigh the threshold.', RefusalPolicy::MAXIMUM_WEIGHT, implode('", "', array_map(static fn (Signal $signal): string => $signal->value, RefusalPolicy::ALWAYS_REFUSED))))
+                            ->normalizeKeys(false)
+                            ->useAttributeAsKey('signal')
+                            ->integerPrototype()->min(0)->max(RefusalPolicy::MAXIMUM_WEIGHT)->end()
+                            ->validate()
+                                ->ifTrue(static fn (array $weights): bool => [] !== array_diff(array_keys($weights), self::weighableSignals()))
+                                ->then(static fn (array $weights): never => throw new InvalidConfigurationException(\sprintf('The signals that take a weight are "%s"; "%s" given.', implode('", "', self::weighableSignals()), implode('", "', array_diff(array_keys($weights), self::weighableSignals())))))
+                            ->end()
+                        ->end()
+                    ->end()
+                ->end()
             ->end();
+    }
+
+    /**
+     * The values of the signals whose weight the configuration sets: all but `RefusalPolicy::ALWAYS_REFUSED`.
+     *
+     * @return list<string>
+     */
+    public static function weighableSignals(): array
+    {
+        return array_values(array_map(
+            static fn (Signal $signal): string => $signal->value,
+            array_filter(Signal::cases(), static fn (Signal $signal): bool => !\in_array($signal, RefusalPolicy::ALWAYS_REFUSED, true)),
+        ));
     }
 
     /**
@@ -131,14 +173,35 @@ final class PhilSpamProtectionBundle extends AbstractBundle
     }
 
     /**
+     * Refuses, in the `prod` environment, the cache pool alone as the store of used tokens: a read then a write, in
+     * memory or in files, lets two simultaneous submissions of one token both pass. A table of a connection, or the
+     * pool under a lock, is required there; outside production, the pool alone is accepted.
+     *
+     * @param array{connection: ?string, lock_factory: ?string} $usedTokens
+     *
+     * @throws InvalidConfigurationException in the prod environment, when neither a connection nor a lock factory is named
+     */
+    public static function assertConcurrencySafeStore(ContainerBuilder $builder, array $usedTokens): void
+    {
+        $environment = $builder->hasParameter('kernel.environment') ? $builder->getParameter('kernel.environment') : null;
+
+        if ('prod' !== $environment || null !== $usedTokens['connection'] || null !== $usedTokens['lock_factory']) {
+            return;
+        }
+
+        throw new InvalidConfigurationException(self::UNSAFE_STORE);
+    }
+
+    /**
      * @param array<array-key, mixed> $config
      */
     #[Override]
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
-        /** @var array{secret: string, timing: array{minimum: int, maximum: int}, proof_of_work: int, content: array{maximum_length: ?int, maximum_links: ?int, forbidden_terms: list<string>, detect_gibberish: bool}, cache_pool: string, used_tokens: array{connection: ?string, lock_factory: ?string}, rate_limiter: ?string, single_server: bool} $config */
+        /** @var array{secret: string, timing: array{minimum: int, maximum: int}, proof_of_work: int, content: array{maximum_length: ?int, maximum_links: ?int, forbidden_terms: list<string>, detect_gibberish: bool}, cache_pool: string, used_tokens: array{connection: ?string, lock_factory: ?string}, rate_limiter: ?string, single_server: bool, refusal: array{threshold: int, weights: array<string, int>}} $config */
         $services = $container->services();
         $connection = $config['used_tokens']['connection'];
+        self::assertConcurrencySafeStore($builder, $config['used_tokens']);
 
         if (null !== $connection) {
             $reference = service(\sprintf('doctrine.dbal.%s_connection', $connection));
@@ -177,6 +240,8 @@ final class PhilSpamProtectionBundle extends AbstractBundle
                 $config['content']['maximum_length'],
             ]);
 
+        $services->set(RefusalPolicy::class)->args([$config['refusal']['threshold'], $config['refusal']['weights']]);
+
         $services->set(ClientKey::class)->args([service('request_stack'), $config['secret']]);
 
         $services->set(SpamProtectionTypeExtension::class)
@@ -185,6 +250,7 @@ final class PhilSpamProtectionBundle extends AbstractBundle
                 service(ClientKey::class),
                 service('translator')->nullOnInvalid(),
                 service('logger')->nullOnInvalid(),
+                service(RefusalPolicy::class),
             ])
             ->tag('form.type_extension')
             ->tag('monolog.logger', ['channel' => 'spam_protection']);

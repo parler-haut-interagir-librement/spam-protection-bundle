@@ -29,6 +29,21 @@ return [
 ];
 ```
 
+## In production
+
+In the `prod` environment, the bundle requires a store of used tokens that is safe under concurrent submissions, and
+the application does not boot without one: a table of a Doctrine connection, or the cache pool under a lock on a store
+every web server shares.
+
+```yaml
+# config/packages/phil_spam_protection.yaml
+when@prod:
+    phil_spam_protection:
+        used_tokens: { connection: default }   # or { lock_factory: lock.factory }
+```
+
+See [Single-use tokens in production](configuration.md#single-use-tokens-in-production).
+
 ## The Stimulus controller
 
 The proof of work is solved in the browser by a Stimulus controller the bundle ships, declared in

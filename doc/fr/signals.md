@@ -1,4 +1,4 @@
-<!-- phil-dev source-sha256=f708506e169a18c1859166ad317321601f4b077b46b6ab36b559ae4f8252aa1a -->
+<!-- phil-dev source-sha256=8f035f237c951e18838ea9a8a5492b104e623da118aebd70e6e9e54571f64015 -->
 # Signaux
 
 Chaque signal est une observation que fait le serveur lui-même, jamais une affirmation du client. L'inspection lève
@@ -24,3 +24,41 @@ tous ceux qu'elle trouve, dans cet ordre.
 remplissent jamais le cache des jetons utilisés. **La limite de débit compte chaque envoi** d'une requête qui a une
 adresse de client, retenu ou non, pour qu'un robot ne puisse pas la remettre à zéro en passant les autres
 vérifications.
+
+## Refus pondérés
+
+Par défaut, un seul signal refuse un envoi. Une application qui trouve un signal trop strict à lui seul — une personne
+qui tape vite et lève `too_fast`, un formulaire de soutien où l'on colle plusieurs liens — lui donne un poids plus
+léger : chaque signal levé ajoute son poids, et un score qui atteint le seuil refuse.
+
+```yaml
+phil_spam_protection:
+    refusal:
+        threshold: 100
+        weights:
+            too_fast: 60          # alone, accepted; with another light signal, refused
+            too_many_links: 40
+            gibberish: 50
+```
+
+| Signaux levés | Score | Résultat |
+|---|---|---|
+| `too_fast` | 60 | Accepté, journalisé au niveau `info` |
+| `too_fast`, `too_many_links` | 100 | Refusé |
+| `honeypot_filled` | 100 | Refusé : un signal non listé pèse le seuil |
+| `token_replayed` | 100 | Refusé, quels que soient les poids |
+
+- **Un signal non listé pèse le seuil**, de sorte que la configuration n'allège jamais que les signaux qu'elle nomme.
+- **`token_missing`, `token_forged` et `token_replayed` pèsent toujours le seuil**, et la configuration refuse un poids
+  pour eux : ils sont certains, et un rejeu plus léger laisserait un jeton passer deux fois, ce que le stockage
+  atomique des jetons utilisés existe pour empêcher
+  ([Jetons à usage unique en production](configuration.md#jetons-à-usage-unique-en-production)).
+- **Chaque signal compte une fois**, quel que soit le nombre de textes qui le lèvent.
+- Un poids de 0 garde un signal dans le journal sans le laisser refuser ; le seuil et les poids sont bornés à partir de
+  1, et de 0, jusqu'à 1000.
+- Un envoi refusé est journalisé au niveau `warning` avec ses signaux, son score et le seuil ; un envoi accepté dont
+  les signaux restent sous le seuil, au niveau `info`, pour qu'un poids trop léger se voie dans le journal.
+
+`RefusalPolicy` est un service : un point d'accès qui appelle directement l'inspecteur lui pose la même question
+([Points d'extension](extension-points.md#linspecteur-hors-des-formulaires)), et `Verdicts::of($inspection, $policy)`
+donne la même réponse sous forme de verdict de détection de robots.

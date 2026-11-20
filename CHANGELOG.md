@@ -4,9 +4,38 @@ All notable changes to `phil/spam-protection-bundle` will be documented in this 
 
 Updates should follow the [Keep a CHANGELOG](https://keepachangelog.com/) principles.
 
+## 0.3.0-alpha - 2026-11-20
+
+In the `prod` environment, the container build fails without
+`used_tokens.connection` or `used_tokens.lock_factory`.
+
+### Added
+
+- `PhilSpamProtectionBundle::assertConcurrencySafeStore()` and `PhilSpamProtectionBundle::UNSAFE_STORE`, its message.
+- Weighted refusals: `Application\RefusalPolicy` and the configuration `refusal`, its `threshold` and the `weights` of
+  the signals, which add up, a score that reaches the threshold refusing; a signal not listed weighs the threshold, and
+  `token_missing`, `token_forged` and `token_replayed` always do. `PhilSpamProtectionBundle::weighableSignals()`.
+- `Verdicts::of()` and `SpamProtectionTypeExtension` take a `RefusalPolicy` as their last argument; a submission
+  accepted with signals below the threshold is logged at the `info` level.
+
+### Changed
+
+- In the `prod` environment, the cache pool alone is refused as the store of used tokens: the container build fails,
+  and the application does not boot, until `used_tokens.connection` names a Doctrine connection or
+  `used_tokens.lock_factory` a lock factory on a store every web server shares. `single_server` does not lift it. The
+  pool alone, in memory or in files, is accepted in every other environment.
+- The log of a refused submission gives its score and the threshold beside its signals.
+- The Node tests resolve `@hotwired/stimulus` to their stub with a synchronous hook given to `module.registerHooks()`,
+  on the loading thread, instead of `module.register()`, which Node deprecates (DEP0205).
+
+### Security
+
+- By default, the used tokens were kept in the cache pool without a lock, even in production: two simultaneous
+  submissions of one token could both pass, such as a form posted twice by a robot that solved one proof of work.
+
 ## 0.2.0-alpha - 2026-11-17
 
-The next version is 0.2.0-alpha: in the `prod` environment, a limiter whose storage is local to each server fails the
+In the `prod` environment, a limiter whose storage is local to each server fails the
 container build, and a token whose claim the pool did not keep is refused.
 
 ### Added

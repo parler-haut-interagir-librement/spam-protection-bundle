@@ -4,7 +4,8 @@
 
 `tests/Unit` covers the inspector with in-memory ports and a mock clock; the adapters over an array
 cache, an in-memory rate limiter and a request stack; the form extension through a form factory; and the bundle's
-configuration on a `ContainerBuilder`, and `Verdicts`. The signals themselves are tested in `phil/spam-protection`. `tests/Functional` renders and submits a contact form in a kernel of its own,
+configuration on a `ContainerBuilder`, `Verdicts` and `RefusalPolicy` — signals that add up to the threshold, those
+below it accepted and logged, the certain signals refused whatever the weights. The signals themselves are tested in `phil/spam-protection`. `tests/Functional` renders and submits a contact form in a kernel of its own,
 as a person — the proof solved — and as robots. `tests/js` runs the Stimulus controller and its computation under
 Node's test runner, Stimulus resolved to a stub by `tests/js/register.mjs`.
 

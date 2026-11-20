@@ -1,4 +1,4 @@
-<!-- phil-dev source-sha256=3386a6c556e2bf74d0f7afe37020e71e5c71369382f88dbebbe5791f7b66996b -->
+<!-- phil-dev source-sha256=aaf7b3a7f578167da4e0d3a11b1719fed125fa6d98c859b0620011afe374ab3a -->
 # phil/spam-protection-bundle
 
 **Tenez le pourriel hors de vos formulaires Symfony sans captcha, sans tiers et sans identifiant.**
@@ -17,14 +17,15 @@ jamais le client.
 Les signaux viennent de `phil/spam-protection`, la bibliothèque en PHP simple à utiliser hors de Symfony. Ce bundle
 ajoute ce qui a besoin du cadriciel : une extension de type de formulaire, les jetons utilisés gardés dans un cache
 PSR-6, le limiteur de débit de Symfony, et le contrôleur Stimulus de la preuve. `Verdicts` donne une inspection sous
-forme de `Verdict` de `phil/bot-detection-bundle`. Un seul signal levé en fait un robot : une application compte donc
-le pourriel comme n'importe quel autre verdict de robot.
+forme de `Verdict` de `phil/bot-detection-bundle`. Par défaut, un seul signal levé en fait un robot : une application compte donc
+le pourriel comme n'importe quel autre verdict de robot ; des refus pondérés laissent plutôt les signaux s'additionner
+jusqu'à un seuil.
 
 ## État
 
 | Partie | État |
 |---|---|
-| Application : `SubmissionInspector`, `Verdicts`, les ports `UsedTokens` et `SubmissionRateLimiter` | Implémenté et testé |
+| Application : `SubmissionInspector`, `Verdicts`, `RefusalPolicy`, les ports `UsedTokens` et `SubmissionRateLimiter` | Implémenté et testé |
 | Infrastructure : extension de type de formulaire, jetons utilisés en PSR-6, limiteur de débit de Symfony, clé du client | Implémenté et testé |
 | La preuve de travail du navigateur : un contrôleur Stimulus (`assets/src/proof_of_work_controller.js`) | Implémenté, testé avec Node |
 | Un test de noyau d'un formulaire protégé | Implémenté |

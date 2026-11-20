@@ -1,10 +1,11 @@
-<!-- phil-dev source-sha256=75bb1abe8286c5b3014d60b16335c2c6e287912eef6ed4b7a5da0d20f2bdd851 -->
+<!-- phil-dev source-sha256=1d2e984f229a339450b691409a7c3b974f00e67755dc88129e36fd2f03c9ea04 -->
 # Référence
 
 | Type | Rôle |
 |---|---|
 | `PhilSpamProtectionBundle` | La classe du bundle : sa configuration et ses services. |
-| `Application\Verdicts` | Une inspection sous forme du `Verdict` de `phil/bot-detection-bundle`. |
+| `Application\Verdicts` | Une inspection sous forme du `Verdict` de `phil/bot-detection-bundle`, sous une `RefusalPolicy`. |
+| `Application\RefusalPolicy` | Les poids des signaux et le seuil qui refuse : `weightOf()`, `score()`, `refuses()` ; `ALWAYS_REFUSED`. |
 | `Application\SubmissionInspector` | Émet la protection d'un formulaire et inspecte un envoi. |
 | `Application\Protection`, `Application\Submission` | Ce que porte un formulaire rendu ; ce que rapporte un envoi. |
 | `Application\UsedTokens`, `Application\SubmissionRateLimiter` | Les ports. |

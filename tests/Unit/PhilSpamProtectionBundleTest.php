@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Phil\SpamProtectionBundle\Tests\Unit;
 
 use Phil\RateLimit\RateLimitGuard;
+use Phil\SpamProtectionBundle\Application\RefusalPolicy;
 use Phil\SpamProtectionBundle\Application\SubmissionInspector;
 use Phil\SpamProtectionBundle\Application\UsedTokens;
 use Phil\SpamProtectionBundle\Infrastructure\Cache\CacheUsedTokens;
@@ -66,6 +67,55 @@ final class PhilSpamProtectionBundleTest extends TestCase
             $reference = $this->reference($extension->getArgument($index));
             self::assertSame($id, (string) $reference);
             self::assertSame(ContainerInterface::NULL_ON_INVALID_REFERENCE, $reference->getInvalidBehavior());
+        }
+
+        self::assertSame(RefusalPolicy::class, (string) $this->reference($extension->getArgument(4)));
+    }
+
+    public function testByDefaultOneSignalRefusesAlone(): void
+    {
+        self::assertSame([100, []], $this->load()->getDefinition(RefusalPolicy::class)->getArguments());
+    }
+
+    public function testTheWeightsAndTheThresholdAreWired(): void
+    {
+        $policy = $this->load(['refusal' => ['threshold' => 10, 'weights' => ['too_fast' => 4, 'too_many_links' => 0, 'rate_limited' => 1_000]]])->getDefinition(RefusalPolicy::class);
+
+        self::assertSame([10, ['too_fast' => 4, 'too_many_links' => 0, 'rate_limited' => 1_000]], $policy->getArguments());
+    }
+
+    public function testACertainSignalTakesNoWeightInTheConfiguration(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessageIsOrContains('The signals that take a weight are "honeypot_filled", "token_expired", "too_fast", "proof_invalid", "malformed", "too_long", "too_many_links", "forbidden_term", "gibberish", "rate_limited"; "token_replayed" given.');
+
+        $this->load(['refusal' => ['weights' => ['too_fast' => 1, 'token_replayed' => 0]]]);
+    }
+
+    public function testTheKeysOfTheWeightsAreNotNormalised(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessageIsOrContains('"too-fast" given.');
+
+        $this->load(['refusal' => ['weights' => ['too-fast' => 4]]]);
+    }
+
+    public function testTheWeighableSignalsAreAllButTheCertainOnes(): void
+    {
+        self::assertSame(['honeypot_filled', 'token_expired', 'too_fast', 'proof_invalid', 'malformed', 'too_long', 'too_many_links', 'forbidden_term', 'gibberish', 'rate_limited'], PhilSpamProtectionBundle::weighableSignals());
+    }
+
+    public function testTheRefusalIsBounded(): void
+    {
+        $this->load(['refusal' => ['threshold' => 1_000, 'weights' => ['too_fast' => 0]]]);
+        $this->load(['refusal' => ['threshold' => 1, 'weights' => ['too_fast' => 1_000]]]);
+
+        foreach ([['threshold' => 0], ['threshold' => 1_001], ['weights' => ['too_fast' => -1]], ['weights' => ['too_fast' => 1_001]]] as $refusal) {
+            try {
+                $this->load(['refusal' => $refusal]);
+                self::fail('Out of bounds: '.json_encode($refusal, \JSON_THROW_ON_ERROR));
+            } catch (InvalidConfigurationException) {
+            }
         }
     }
 
@@ -195,13 +245,64 @@ final class PhilSpamProtectionBundleTest extends TestCase
             return $container;
         };
 
+        $locked = ['used_tokens' => ['lock_factory' => 'lock.factory']];
         $build(['rate_limiter' => 'limiter.contact'], 'test');
-        $build(['rate_limiter' => 'limiter.shared'], 'prod');
-        $build(['rate_limiter' => 'limiter.contact', 'single_server' => true], 'prod');
-        $build([], 'prod');
+        $build(['rate_limiter' => 'limiter.shared'] + $locked, 'prod');
+        $build(['rate_limiter' => 'limiter.contact', 'single_server' => true] + $locked, 'prod');
+        $build($locked, 'prod');
 
         $this->expectExceptionObject(new InvalidConfigurationException('phil_spam_protection.rate_limiter: the store "limiter.contact" is local to each server, so a client could spend the limit once per server. Name a cache pool on a shared store — Redis, Memcached, a database —, or set "single_server" to true on a single server.'));
-        $build(['rate_limiter' => 'limiter.contact'], 'prod');
+        $build(['rate_limiter' => 'limiter.contact'] + $locked, 'prod');
+    }
+
+    public function testInProductionTheUsedTokensNeedAStoreSafeUnderConcurrency(): void
+    {
+        $load = static function (array $config, ?string $environment): ContainerBuilder {
+            $container = new ContainerBuilder();
+
+            if (null !== $environment) {
+                $container->setParameter('kernel.environment', $environment);
+            }
+
+            $extension = new PhilSpamProtectionBundle()->getContainerExtension();
+            self::assertNotNull($extension);
+            $extension->load([$config], $container);
+
+            return $container;
+        };
+
+        self::assertSame(CacheUsedTokens::class, (string) $load([], 'dev')->getAlias(UsedTokens::class), 'The pool alone outside production.');
+        self::assertSame(CacheUsedTokens::class, (string) $load([], 'test')->getAlias(UsedTokens::class));
+        self::assertSame(CacheUsedTokens::class, (string) $load([], null)->getAlias(UsedTokens::class));
+        self::assertSame(CacheUsedTokens::class, (string) $load(['used_tokens' => ['lock_factory' => 'lock.factory']], 'prod')->getAlias(UsedTokens::class));
+        self::assertSame(DbalUsedTokens::class, (string) $load(['used_tokens' => ['connection' => 'default']], 'prod')->getAlias(UsedTokens::class));
+
+        foreach ([[], ['single_server' => true], ['cache_pool' => 'cache.redis']] as $config) {
+            try {
+                $load($config, 'prod');
+                self::fail('The pool alone was accepted in production.');
+            } catch (InvalidConfigurationException $invalidConfigurationException) {
+                self::assertSame(PhilSpamProtectionBundle::UNSAFE_STORE, $invalidConfigurationException->getMessage());
+            }
+        }
+
+        self::assertStringStartsWith('phil_spam_protection.used_tokens: in the prod environment,', PhilSpamProtectionBundle::UNSAFE_STORE);
+    }
+
+    public function testTheGuardOfTheStoreIsCalledFromOutsideTheBundle(): void
+    {
+        $builder = new ContainerBuilder();
+        $builder->setParameter('kernel.environment', 'dev');
+        PhilSpamProtectionBundle::assertConcurrencySafeStore($builder, ['connection' => null, 'lock_factory' => null]);
+        PhilSpamProtectionBundle::assertConcurrencySafeStore($builder, ['connection' => 'default', 'lock_factory' => null]);
+
+        $builder->setParameter('kernel.environment', 'prod');
+        PhilSpamProtectionBundle::assertConcurrencySafeStore($builder, ['connection' => null, 'lock_factory' => 'lock.factory']);
+
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessageIsOrContains(PhilSpamProtectionBundle::UNSAFE_STORE);
+
+        PhilSpamProtectionBundle::assertConcurrencySafeStore($builder, ['connection' => null, 'lock_factory' => null]);
     }
 
     public function testAnEmptySecretIsRefused(): void

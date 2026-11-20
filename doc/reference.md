@@ -3,7 +3,8 @@
 | Type | Role |
 |---|---|
 | `PhilSpamProtectionBundle` | The bundle class: its configuration and services. |
-| `Application\Verdicts` | An inspection as the `Verdict` of `phil/bot-detection-bundle`. |
+| `Application\Verdicts` | An inspection as the `Verdict` of `phil/bot-detection-bundle`, under a `RefusalPolicy`. |
+| `Application\RefusalPolicy` | The weights of the signals and the threshold that refuses: `weightOf()`, `score()`, `refuses()`; `ALWAYS_REFUSED`. |
 | `Application\SubmissionInspector` | Issues a form's protection and inspects a submission. |
 | `Application\Protection`, `Application\Submission` | What a rendered form carries; what a submission brings back. |
 | `Application\UsedTokens`, `Application\SubmissionRateLimiter` | The ports. |

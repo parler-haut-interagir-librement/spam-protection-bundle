@@ -15,13 +15,14 @@ form and the reasons, never the client.
 The signals come from `phil/spam-protection`, the plain PHP library to use outside Symfony. This bundle adds what
 needs the framework: a form type extension, used tokens kept in a PSR-6 cache, the Symfony rate limiter, and the
 Stimulus controller of the proof. `Verdicts` gives an inspection as a `Verdict` of `phil/bot-detection-bundle`.
-One raised signal makes it a robot, so an application counts spam like any other robot verdict.
+By default one raised signal makes it a robot, so an application counts spam like any other robot verdict; weighted
+refusals let signals add up to a threshold instead.
 
 ## Status
 
 | Part | State |
 |---|---|
-| Application: `SubmissionInspector`, `Verdicts`, `UsedTokens` and `SubmissionRateLimiter` ports | Implemented and tested |
+| Application: `SubmissionInspector`, `Verdicts`, `RefusalPolicy`, `UsedTokens` and `SubmissionRateLimiter` ports | Implemented and tested |
 | Infrastructure: form type extension, PSR-6 used tokens, Symfony rate limiter, client key | Implemented and tested |
 | The browser's proof of work: a Stimulus controller (`assets/src/proof_of_work_controller.js`) | Implemented, tested with Node |
 | A kernel test of a protected form | Implemented |
