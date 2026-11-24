@@ -35,13 +35,13 @@
         "symfony/form": "^8.2",
         "symfony/http-foundation": "^8.2",
         "symfony/options-resolver": "^8.2",
-        "symfony/translation-contracts": "^3.6"
+        "symfony/translation-contracts": "^3.8"
     },
     "require-dev": {
         "ext-pdo": "*",
         "ext-pdo_sqlite": "*",
-        "doctrine/dbal": "^4.5",
-        "doctrine/orm": "^3.7",
+        "doctrine/dbal": "^4.6",
+        "doctrine/orm": "^3.8",
         "phpunit/phpunit": "^13.4",
         "symfony/cache": "^8.2",
         "symfony/clock": "^8.2",
@@ -75,7 +75,7 @@
     },
     "extra": {
         "branch-alias": {
-            "dev-main": "0.2.x-dev"
+            "dev-main": "0.3.x-dev"
         }
     }
 }

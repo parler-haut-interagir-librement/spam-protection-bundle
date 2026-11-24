@@ -4,6 +4,18 @@ All notable changes to `phil/spam-protection-bundle` will be documented in this 
 
 Updates should follow the [Keep a CHANGELOG](https://keepachangelog.com/) principles.
 
+## 0.3.1-alpha - 2026-11-24
+
+### Changed
+
+- Requires the latest minor of each dependency (`symfony/translation-contracts` 3.8), and of each development
+  requirement (`doctrine/orm` 3.8, `doctrine/dbal` 4.6).
+
+### Security
+
+- `CacheUsedTokens` no longer puts the nonce in clear in the key of its lock or of its cache item: both use the SHA-256
+  of the nonce, so a lock store or a shared pool that logs or lists its keys never sees a token's nonce.
+
 ## 0.3.0-alpha - 2026-11-20
 
 In the `prod` environment, the container build fails without

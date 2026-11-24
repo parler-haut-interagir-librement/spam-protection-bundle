@@ -78,7 +78,9 @@ phil_spam_protection:
 With `connection`, the table `phil_spam_protection_used_token` joins the schema the ORM generates for that
 connection, so `doctrine:migrations:diff` writes its migration; without the ORM, `UsedTokensTable::configure()` adds
 it to a schema. `DbalUsedTokens::purge()` forgets the expired rows, from a scheduled task. Under a lock, each claim
-holds the lock of its nonce for at most 10 seconds; on Redis, the lock store's `SET NX` gives the atomic step.
+holds the lock of its nonce for at most 10 seconds; on Redis, the lock store's `SET NX` gives the atomic step. The
+key of the lock and of the cache item is `phil_spam_protection.` followed by the SHA-256 of the nonce, never the nonce
+itself, so a lock store or a pool that logs or lists its keys does not hold a token's nonce.
 
 A claim the pool does not keep is refused: under a lock, when `save()` answers `false`; without one, also when the
 marker cannot be read back. A pool that keeps nothing, such as `cache.adapter.null`, therefore refuses every token.

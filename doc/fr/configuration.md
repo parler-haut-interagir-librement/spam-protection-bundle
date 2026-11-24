@@ -1,4 +1,4 @@
-<!-- phil-dev source-sha256=683fd442582d1fd4253b962565a6619f35f10da087040865ee0915e7e5ecf871 -->
+<!-- phil-dev source-sha256=ba2faa0faaf61045870d5bc1055332122e000d6ecdfcc476d14ea00c081db167 -->
 # Configuration
 
 L'alias est `phil_spam_protection`. Chaque clé est facultative.
@@ -80,7 +80,9 @@ Avec `connection`, la table `phil_spam_protection_used_token` rejoint le schéma
 connexion : `doctrine:migrations:diff` écrit sa migration ; sans l'ORM, `UsedTokensTable::configure()` l'ajoute à un
 schéma. `DbalUsedTokens::purge()` oublie les lignes expirées, depuis une tâche planifiée. Sous un verrou, chaque
 revendication tient le verrou de son nonce au plus 10 secondes ; sur Redis, le `SET NX` du stockage des verrous donne
-l'étape atomique.
+l'étape atomique. La clé du verrou et de l'élément de cache est `phil_spam_protection.` suivi du SHA-256 du nonce,
+jamais le nonce lui-même, si bien qu'un stockage de verrous ou un pool qui journalise ou énumère ses clés ne détient
+pas le nonce d'un jeton.
 
 Une revendication que le pool ne garde pas est refusée : sous un verrou, quand `save()` répond `false` ; sans verrou,
 aussi quand le marqueur ne peut pas être relu. Un pool qui ne garde rien, comme `cache.adapter.null`, refuse donc chaque

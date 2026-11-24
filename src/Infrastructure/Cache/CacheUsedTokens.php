@@ -24,11 +24,18 @@ use Symfony\Component\Lock\LockFactory;
  *
  * A claim the pool does not keep is refused: its `save()` answered `false`, or, without a lock, the marker cannot be
  * read back. Accepting it would let the same token through again; a pool that keeps nothing refuses every token.
+ *
+ * The nonce never leaves in clear: the key of its lock and of its cache item is `phil_spam_protection.` followed by the
+ * SHA-256 of the nonce in hexadecimal, which a lock store or a pool shared with other applications may log or list, and
+ * which stays within the characters PSR-6 allows whatever the nonce holds.
  */
 final readonly class CacheUsedTokens implements UsedTokens
 {
     /** The longest a claim holds the lock of its nonce, in seconds. */
     private const float LOCK_TTL = 10.0;
+
+    /** The prefix of the key of a nonce's lock and cache item, before the hash of the nonce. */
+    private const string KEY_PREFIX = 'phil_spam_protection.';
 
     public function __construct(
         private CacheItemPoolInterface $pool,
@@ -39,7 +46,7 @@ final readonly class CacheUsedTokens implements UsedTokens
     #[Override]
     public function claim(string $nonce, int $ttl): bool
     {
-        $key = 'phil_spam_protection.'.$nonce;
+        $key = self::KEY_PREFIX.hash('sha256', $nonce);
 
         if (!$this->locks instanceof LockFactory) {
             return $this->claimWithoutLock($key, $ttl);

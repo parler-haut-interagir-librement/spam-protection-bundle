@@ -8,6 +8,8 @@ use Phil\SpamProtectionBundle\Infrastructure\Cache\CacheUsedTokens;
 use Phil\SpamProtectionBundle\Infrastructure\Http\ClientKey;
 use Phil\SpamProtectionBundle\Infrastructure\RateLimit\SymfonySubmissionRateLimiter;
 use Phil\SpamProtectionBundle\Tests\Unit\Fixture\InterleavingPool;
+use Phil\SpamProtectionBundle\Tests\Unit\Fixture\KeyRecordingLockStore;
+use Phil\SpamProtectionBundle\Tests\Unit\Fixture\KeyRecordingPool;
 use Phil\SpamProtectionBundle\Tests\Unit\Fixture\RacingPool;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -35,7 +37,7 @@ final class AdaptersTest extends TestCase
         self::assertTrue($tokens->claim('abc', 60));
         self::assertFalse($tokens->claim('abc', 60));
         self::assertTrue($tokens->claim('def', 60));
-        self::assertTrue($pool->getItem('phil_spam_protection.abc')->isHit());
+        self::assertTrue($pool->getItem($this->key('abc'))->isHit());
         self::assertFalse($tokens->claim('gone', -1), 'A claim that expires at once is not kept, so it is refused.');
     }
 
@@ -106,13 +108,13 @@ final class AdaptersTest extends TestCase
             $events[] = 'release';
         });
         $locks = $this->createMock(LockFactory::class);
-        $locks->expects(self::exactly(2))->method('createLock')->with('phil_spam_protection.abc', 10.0)->willReturn($lock);
+        $locks->expects(self::exactly(2))->method('createLock')->with($this->key('abc'), 10.0)->willReturn($lock);
         $tokens = new CacheUsedTokens($pool, $locks);
 
         self::assertTrue($tokens->claim('abc', 60));
         self::assertFalse($tokens->claim('abc', 60));
         self::assertSame(['acquire', 'read', 'release', 'acquire', 'release'], $events);
-        $marker = $pool->pool->getItem('phil_spam_protection.abc')->get();
+        $marker = $pool->pool->getItem($this->key('abc'))->get();
         self::assertIsString($marker);
         self::assertMatchesRegularExpression('/^[0-9a-f]{16}$/', $marker);
     }
@@ -135,9 +137,46 @@ final class AdaptersTest extends TestCase
         $tokens = new CacheUsedTokens($pool);
 
         self::assertTrue($tokens->claim('abc', 60));
-        $marker = $pool->getItem('phil_spam_protection.abc')->get();
+        $marker = $pool->getItem($this->key('abc'))->get();
         self::assertIsString($marker);
         self::assertMatchesRegularExpression('/^[0-9a-f]{16}$/', $marker);
+    }
+
+    /**
+     * A lock store or a pool may log or list its keys: the nonce reaches neither in clear, only its SHA-256, which also
+     * keeps a nonce with characters PSR-6 reserves a valid cache key. A replay is still refused, with or without a lock.
+     */
+    public function testNoLockOrCacheKeyHoldsTheNonce(): void
+    {
+        $nonce = 'n0nce{secret}/value:@';
+        $store = new KeyRecordingLockStore();
+        $pool = new KeyRecordingPool();
+        $tokens = new CacheUsedTokens($pool, new LockFactory($store));
+
+        self::assertTrue($tokens->claim($nonce, 60));
+        self::assertFalse($tokens->claim($nonce, 60), 'A replay under a lock is refused.');
+        self::assertNotSame([], $store->keys);
+        self::assertNotSame([], $pool->keys);
+        self::assertSame([$this->key($nonce)], array_values(array_unique([...$store->keys, ...$pool->keys])));
+
+        foreach ([...$store->keys, ...$pool->keys] as $key) {
+            self::assertStringNotContainsString('secret', $key);
+            self::assertStringNotContainsString($nonce, $key);
+        }
+
+        $unlocked = new KeyRecordingPool();
+        $withoutLock = new CacheUsedTokens($unlocked);
+        self::assertTrue($withoutLock->claim($nonce, 60));
+        self::assertFalse($withoutLock->claim($nonce, 60), 'A replay without a lock is refused.');
+        self::assertSame([$this->key($nonce)], array_values(array_unique($unlocked->keys)));
+    }
+
+    public function testTheKeyOfANonceIsItsSha256AfterThePrefix(): void
+    {
+        $pool = new ArrayAdapter();
+
+        self::assertTrue(new CacheUsedTokens($pool)->claim('abc', 60));
+        self::assertTrue($pool->getItem('phil_spam_protection.ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')->isHit());
     }
 
     public function testTheRateLimitCountsPerFormAndClient(): void
@@ -192,5 +231,10 @@ final class AdaptersTest extends TestCase
         self::assertSame('2001:db8::/64', ClientKey::network('2001:db8::9'));
         self::assertSame('::/64', ClientKey::network('::1'));
         self::assertSame('not an address', ClientKey::network('not an address'));
+    }
+
+    private function key(string $nonce): string
+    {
+        return 'phil_spam_protection.'.hash('sha256', $nonce);
     }
 }
